@@ -57,17 +57,16 @@ function ImageProcessor() {
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-2">
-                 <label htmlFor="image-upload" className="block text-sm font-medium text-gray-700">
+                 <label htmlFor="image-upload" className="block text-sm font-medium text-gray-700 sr-only">
                     Upload Image
                  </label>
-                 <div className="flex items-center gap-4">
-                     <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="w-full" />
-                     <Button onClick={() => document.getElementById('image-upload')?.click()} variant="outline">
-                         <Upload className="mr-2" />
-                         Choose File
-                     </Button>
-                 </div>
+                 <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} />
             </div>
+
+            <Button disabled>
+                <Upload className="mr-2" />
+                Upload Images
+            </Button>
 
             {(originalImageUrl || transformedImageUrl) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
