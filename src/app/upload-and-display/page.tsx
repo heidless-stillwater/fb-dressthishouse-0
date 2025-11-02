@@ -65,25 +65,17 @@ function ImageProcessor() {
     }
   };
   
-  const handleUploadAndTransform = async () => {
+  const handleUpload = async () => {
     if (!originalImage) {
         toast({
             variant: "destructive",
             title: "Missing Image",
-            description: "Please select an image to transform.",
-        });
-        return;
-    }
-     if (!prompt) {
-        toast({
-            variant: "destructive",
-            title: "Missing Prompt",
-            description: "Please provide a prompt to guide the transformation.",
+            description: "Please select an image to upload.",
         });
         return;
     }
 
-    if (!user || !storage || !firestore) {
+    if (!user || !storage) {
         toast({
             variant: "destructive",
             title: "Services not available",
@@ -93,93 +85,33 @@ function ImageProcessor() {
     }
 
     setIsLoading(true);
-    setTransformedImageUrl(null);
+    setLoadingMessage('Uploading image...');
 
     try {
-        // 1. Transform Image
-        setLoadingMessage('Transforming image...');
-        const reader = new FileReader();
-        reader.readAsDataURL(originalImage);
-        reader.onload = async () => {
-            const originalImageBase64 = reader.result as string;
+        const timestamp = Date.now();
+        const originalFileName = originalImage.name;
+        const filePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
+        const storageRef = ref(storage, filePath);
+        
+        const uploadResult = await uploadBytes(storageRef, originalImage);
+        const downloadURL = await getDownloadURL(uploadResult.ref);
 
-            try {
-                const transformedImageBase64 = await transformImage({ image: originalImageBase64, prompt: prompt });
-                setTransformedImageUrl(transformedImageBase64);
+        toast({
+          title: "Image Uploaded!",
+          description: "The image was successfully uploaded.",
+        });
+        
+        // For now, just log the URL. We will save it to Firestore later.
+        console.log("Uploaded image URL:", downloadURL);
 
-                // 2. Upload both images
-                setLoadingMessage('Uploading images...');
-                const timestamp = Date.now();
-                const originalFileName = originalImage.name;
-                
-                // Upload original image
-                const originalFilePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
-                const originalStorageRef = ref(storage, originalFilePath);
-                const originalUploadResult = await uploadBytes(originalStorageRef, originalImage);
-                const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
-                
-                // Upload transformed image
-                const transformedImageBlob = await (await fetch(transformedImageBase64)).blob();
-                const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-transformed-${originalFileName}`;
-                const transformedStorageRef = ref(storage, transformedFilePath);
-                const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
-                const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
-
-                // 3. Save record to Firestore
-                setLoadingMessage('Saving record...');
-                const imageRecord = {
-                    userId: user.uid,
-                    originalImageUrl: originalDownloadURL,
-                    transformedImageUrl: transformedDownloadURL,
-                    originalFileName: originalFileName,
-                    prompt: prompt,
-                    timestamp: serverTimestamp(),
-                };
-
-                const collectionRef = collection(firestore, 'imageRecords');
-                await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
-                    const permissionError = new FirestorePermissionError({
-                        path: collectionRef.path,
-                        operation: 'create',
-                        requestResourceData: imageRecord,
-                    });
-                    errorEmitter.emit('permission-error', permissionError);
-                    throw new Error("Could not save image record to database.");
-                });
-
-                toast({
-                  title: "Image Processed!",
-                  description: "The image was successfully transformed and saved.",
-                });
-
-            } catch (error) {
-                console.error("Transformation or upload error:", error);
-                toast({
-                    variant: "destructive",
-                    title: "An error occurred",
-                    description: (error as Error).message || "There was a problem with the image transformation process.",
-                });
-            } finally {
-                setIsLoading(false);
-                setLoadingMessage('');
-            }
-        };
-        reader.onerror = (error) => {
-            console.error('Error reading file:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Error reading file',
-                description: 'Could not read the selected image file.',
-            });
-            setIsLoading(false);
-        };
     } catch (error) {
-        console.error("Operation error:", error);
+        console.error("Upload error:", error);
         toast({
             variant: "destructive",
             title: "An error occurred",
-            description: (error as Error).message || "There was a problem with the image upload process.",
+            description: (error as Error).message || "There was a problem with the image upload.",
         });
+    } finally {
         setIsLoading(false);
         setLoadingMessage('');
     }
@@ -229,7 +161,7 @@ function ImageProcessor() {
                          <div className="relative aspect-video">
                             <Image src={transformedImageUrl} alt="Transformed" fill className="rounded-md object-cover" />
                         </div>
-                    ) : isLoading ? (
+                    ) : isLoading && loadingMessage.includes('Transforming') ? (
                        <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
                            <Wand2 className="text-gray-400 size-12 animate-pulse" />
                        </div>
@@ -241,7 +173,7 @@ function ImageProcessor() {
                 </div>
             </div>
             
-            <Button onClick={handleUploadAndTransform} disabled={!originalImage || isLoading} className="w-full">
+            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
                 {isLoading ? loadingMessage : "Upload Images"}
             </Button>
         </CardContent>
@@ -350,3 +282,4 @@ export default function UploadAndDisplayPage() {
     </main>
   );
 }
+ 
