@@ -63,7 +63,7 @@ function ImageProcessor() {
                  <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} />
             </div>
 
-            <Button disabled>
+            <Button disabled={!originalImage}>
                 <Upload className="mr-2" />
                 Upload Images
             </Button>
