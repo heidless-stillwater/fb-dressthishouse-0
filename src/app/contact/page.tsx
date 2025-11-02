@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,6 +13,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft } from 'lucide-react';
+import { useFirestore } from '@/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
+import { useCollection } from '@/firebase/firestore/use-collection';
 
 const contactFormSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -22,33 +27,64 @@ const contactFormSchema = z.object({
 
 type ContactFormValues = z.infer<typeof contactFormSchema>;
 
+type ContactSubmission = {
+    id: string;
+    name: string;
+    email: string;
+    message: string;
+}
+
 export default function ContactPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const firestore = useFirestore();
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactFormSchema),
   });
+  
+  const messagesQuery = useMemo(() => {
+    if (!firestore) return null;
+    return collection(firestore, 'dth_contactMessages');
+  }, [firestore]);
+
+  const { data: messages, loading: messagesLoading } = useCollection<ContactSubmission>(messagesQuery);
+
 
   const onSubmit = async (data: ContactFormValues) => {
     setLoading(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Simulate a random failure
-    if (Math.random() > 0.8) {
+    if (!firestore) {
+        toast({
+            variant: "destructive",
+            title: "Oh no! Something went wrong.",
+            description: "Could not connect to the database.",
+        });
+        setLoading(false);
+        return;
+    }
+    
+    const collectionRef = collection(firestore, 'dth_contactMessages');
+    const newData = { ...data, createdAt: serverTimestamp() };
+
+    addDoc(collectionRef, newData).then(() => {
+        setSubmitted(true);
+    }).catch(async (serverError) => {
+      const permissionError = new FirestorePermissionError({
+          path: collectionRef.path,
+          operation: 'create',
+          requestResourceData: newData,
+      });
+      errorEmitter.emit('permission-error', permissionError);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: "There was a problem with your request. Please try again.",
+        description: "There was a problem submitting your message. Please try again.",
       });
-    } else {
-       setSubmitted(true);
-    }
-    
-    setLoading(false);
+    }).finally(() => {
+        setLoading(false);
+    });
   };
 
   if (submitted) {
@@ -69,7 +105,7 @@ export default function ContactPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-background">
+    <main className="flex min-h-screen flex-col items-center p-8 bg-background gap-8">
        <div className="absolute top-8 left-8">
         <Button asChild variant="outline">
           <Link href="/">
@@ -78,7 +114,7 @@ export default function ContactPage() {
           </Link>
         </Button>
       </div>
-      <Card className="w-full max-w-lg">
+      <Card className="w-full max-w-lg mt-20">
         <CardHeader>
           <CardTitle className="text-3xl">Contact Us</CardTitle>
           <CardDescription>
@@ -111,6 +147,7 @@ export default function ContactPage() {
               />
               {form.formState.errors.message && (
                 <p className="text-sm text-destructive">{form.formState.errors.message.message}</p>
+
               )}
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
@@ -119,6 +156,29 @@ export default function ContactPage() {
           </form>
         </CardContent>
       </Card>
+
+       <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle>Submitted Messages</CardTitle>
+            <CardDescription>Here are the messages that have been submitted through the contact form.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {messagesLoading ? (
+              <p>Loading messages...</p>
+            ) : messages && messages.length > 0 ? (
+              <ul className="space-y-4">
+                {messages.map((msg) => (
+                  <li key={msg.id} className="border p-4 rounded-md">
+                    <p className="font-semibold">{msg.name} <span className="text-sm text-muted-foreground">({msg.email})</span></p>
+                    <p className="mt-2 text-gray-700">{msg.message}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No messages have been submitted yet.</p>
+            )}
+          </CardContent>
+        </Card>
     </main>
   );
 }

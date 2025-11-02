@@ -47,9 +47,14 @@
         "message": {
           "type": "string",
           "description": "The content of the message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The creation timestamp of the submission."
         }
       },
-      "required": ["name", "email", "message"]
+      "required": ["name", "email", "message", "createdAt"]
     }
   },
   "auth": {
@@ -64,11 +69,11 @@
       },
       "description": "Stores tasks for each user."
     },
-    "/contactSubmissions/{submissionId}": {
-        "schema": {
-            "$ref": "#/entities/contactSubmission"
-        },
-        "description": "Stores submissions from the contact form."
+    "/dth_contactMessages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/contactSubmission"
+      },
+      "description": "Stores submissions from the contact form."
     }
   }
 }
