@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
 import { addDoc, collection, serverTimestamp, query, where, orderBy } from 'firebase/firestore';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -67,53 +67,88 @@ function ImageProcessor() {
   
   const handleUpload = async () => {
     if (!originalImage) {
-        toast({
-            variant: "destructive",
-            title: "Missing Image",
-            description: "Please select an image to upload.",
-        });
-        return;
+      toast({ variant: "destructive", title: "Missing Image", description: "Please select an image to upload." });
+      return;
     }
-
-    if (!user || !storage) {
-        toast({
-            variant: "destructive",
-            title: "Services not available",
-            description: "Could not connect to Firebase services. Please try again later.",
-        });
-        return;
+    if (!prompt) {
+      toast({ variant: "destructive", title: "Missing Prompt", description: "Please enter a prompt." });
+      return;
+    }
+    if (!user || !storage || !firestore) {
+      toast({ variant: "destructive", title: "Services not available", description: "Could not connect to Firebase. Please try again." });
+      return;
     }
 
     setIsLoading(true);
-    setLoadingMessage('Uploading image...');
+    setTransformedImageUrl(null);
 
     try {
-        const timestamp = Date.now();
-        const originalFileName = originalImage.name;
-        const filePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
-        const storageRef = ref(storage, filePath);
-        
-        const uploadResult = await uploadBytes(storageRef, originalImage);
-        const downloadURL = await getDownloadURL(uploadResult.ref);
+      // 1. Upload Original Image
+      setLoadingMessage('Uploading original image...');
+      const timestamp = Date.now();
+      const originalFileName = originalImage.name;
+      const originalFilePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
+      const originalStorageRef = ref(storage, originalFilePath);
+      await uploadBytes(originalStorageRef, originalImage);
+      const originalDownloadURL = await getDownloadURL(originalStorageRef);
+      toast({ title: "Original image uploaded!" });
 
-        toast({
-          title: "Image Uploaded!",
-          description: "The image was successfully uploaded.",
-        });
-        
-        // For now, just log the URL. We will save it to Firestore later.
-        console.log("Uploaded image URL:", downloadURL);
+      // 2. Generate Transformed Image
+      setLoadingMessage('Transforming image...');
+      const backgroundColor = testMode ? 'light blue' : 'light red';
+      const transformationPrompt = `Create an image with a solid ${backgroundColor} background. In the foreground, display the following text clearly: "${prompt}"`;
+      
+      const originalImageAsDataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(originalImage);
+      });
+
+      const transformedDataUrl = await transformImage({ image: originalImageAsDataUrl, prompt: transformationPrompt });
+      setTransformedImageUrl(transformedDataUrl);
+      toast({ title: "Image transformed!" });
+
+      // 3. Upload Transformed Image
+      setLoadingMessage('Uploading transformed image...');
+      const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-transformed-${originalFileName}`;
+      const transformedStorageRef = ref(storage, transformedFilePath);
+      await uploadString(transformedStorageRef, transformedDataUrl, 'data_url');
+      const transformedDownloadURL = await getDownloadURL(transformedStorageRef);
+      toast({ title: "Transformed image uploaded!" });
+
+      // 4. Save record to Firestore
+      setLoadingMessage('Saving record...');
+      const imageRecordData = {
+        userId: user.uid,
+        originalImageUrl: originalDownloadURL,
+        transformedImageUrl: transformedDownloadURL,
+        originalFileName: originalFileName,
+        prompt: prompt,
+        timestamp: serverTimestamp(),
+      };
+      const collectionRef = collection(firestore, 'imageRecords');
+      addDoc(collectionRef, imageRecordData).catch(async (serverError) => {
+          const permissionError = new FirestorePermissionError({
+              path: collectionRef.path,
+              operation: 'create',
+              requestResourceData: imageRecordData,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+          throw new Error("Could not save image record to the database.");
+      });
+      toast({ title: "Success!", description: "Your images have been processed and saved." });
 
     } catch (error) {
-        console.error("Upload error:", error);
-        toast({
-            variant: "destructive",
-            title: "An error occurred",
-            description: (error as Error).message || "There was a problem with the image upload.",
-        });
+      console.error("An error occurred:", error);
+      toast({
+        variant: "destructive",
+        title: "An error occurred",
+        description: (error as Error).message || "There was a problem with the operation.",
+      });
     } finally {
-        setIsLoading(false);
-        setLoadingMessage('');
+      setIsLoading(false);
+      setLoadingMessage('');
     }
   };
 
@@ -283,3 +318,4 @@ export default function UploadAndDisplayPage() {
   );
 }
  
+    
