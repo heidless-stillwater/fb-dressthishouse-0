@@ -6,12 +6,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUser, useStorage, useFirestore } from '@/firebase';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Upload, Wand2, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Wand2, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
-import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { transformImage } from '@/ai/flows/transform-image-flow';
 import { v4 as uuidv4 } from 'uuid';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
@@ -88,7 +88,7 @@ function ImageProcessor() {
         const originalStorageRef = ref(storage, originalFilePath);
         const uploadResult = await uploadBytes(originalStorageRef, originalImage);
         const originalDownloadURL = await getDownloadURL(uploadResult.ref);
-        setOriginalImageUrl(originalDownloadURL); // Set persistent URL
+        setOriginalImageUrl(originalDownloadURL);
 
         toast({
             title: "Upload successful!",
@@ -113,12 +113,12 @@ function ImageProcessor() {
         const transformedFileName = `transformed-${uuidv4()}.png`;
         const transformedFilePath = `user-uploads/${user.uid}/${transformedTimestamp}-${transformedFileName}`;
         const transformedStorageRef = ref(storage, transformedFilePath);
-        const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
-        const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
-        setTransformedImageUrl(transformedDownloadURL); // Set persistent URL
+        await uploadBytes(transformedStorageRef, transformedImageBlob);
+        const transformedDownloadURL = await getDownloadURL(transformedStorageRef);
+        setTransformedImageUrl(transformedDownloadURL);
 
         // 4. Save record to Firestore
-        setLoadingMessage('Saving records...');
+        setLoadingMessage('Saving record...');
         const imageRecord = {
             userId: user.uid,
             originalImageUrl: originalDownloadURL,
@@ -247,5 +247,3 @@ export default function UploadAndDisplayPage() {
     </main>
   );
 }
-
-    
