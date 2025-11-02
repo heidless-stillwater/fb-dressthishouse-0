@@ -73,7 +73,7 @@ function ImageProcessor() {
     }
   };
   
-  const handleUploadAndTransform = async () => {
+  const handleUpload = async () => {
     if (!originalImage || !prompt || !user || !storage || !firestore) {
         toast({
             variant: "destructive",
@@ -234,7 +234,7 @@ function ImageProcessor() {
                 </div>
             )}
             
-            <Button onClick={handleUploadAndTransform} disabled={!originalImage || !prompt || isLoading} className="w-full">
+            <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
                 {isLoading ? loadingMessage : "Upload and Transform Image"}
                 <Wand2 className="ml-2" />
             </Button>
