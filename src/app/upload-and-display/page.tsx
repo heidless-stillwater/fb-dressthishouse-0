@@ -19,6 +19,7 @@ import { transformImage } from '@/ai/flows/transform-image-flow';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type ImageRecord = {
     id: string;
@@ -34,6 +35,7 @@ function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
+  const [testMode, setTestMode] = useState(false);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -193,12 +195,18 @@ function ImageProcessor() {
         <CardContent className="space-y-6">
              <div className="space-y-4">
                  <div className="space-y-2">
-                    <Label htmlFor="image-upload">1. Upload Image</Label>
+                    <Label htmlFor="image-upload">Image</Label>
                     <Input id="image-upload" name="image" type="file" accept="image/*" onChange={handleInputChange} className="flex-grow" disabled={isLoading} />
                  </div>
                  <div className="space-y-2">
-                    <Label htmlFor="prompt">2. Enter Prompt</Label>
+                    <Label htmlFor="prompt">Prompt</Label>
                     <Input id="prompt" name="prompt" type="text" placeholder="e.g., 'make it a cyberpunk style'" value={prompt} onChange={handleInputChange} disabled={isLoading} />
+                </div>
+                <div className="flex items-center space-x-2">
+                    <Checkbox id="test-mode" checked={testMode} onCheckedChange={(checked) => setTestMode(Boolean(checked))} disabled={isLoading} />
+                    <Label htmlFor="test-mode" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                        Test mode
+                    </Label>
                 </div>
             </div>
 
@@ -234,8 +242,7 @@ function ImageProcessor() {
             </div>
             
             <Button onClick={handleUploadAndTransform} disabled={!originalImage || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Upload and Transform"}
-                <Wand2 className="ml-2" />
+                {isLoading ? loadingMessage : "Upload Images"}
             </Button>
         </CardContent>
     </Card>
