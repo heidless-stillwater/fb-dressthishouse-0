@@ -32,7 +32,7 @@ let firestore: Firestore;
 if (typeof window !== 'undefined' && !getApps().length) {
   firebaseApp = initializeApp(firebaseConfig);
   auth = getAuth(firebaseApp);
-  firestore = getFirestore(firebaseApp);
+  firestore = getFirestore(firebaseApp, 'dressthishouse-db-0');
 }
 
 function getFirebase(): FirebaseServices {
