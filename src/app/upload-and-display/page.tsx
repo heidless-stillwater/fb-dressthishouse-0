@@ -19,6 +19,7 @@ import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { v4 as uuidv4 } from 'uuid';
+import { transformImage } from '@/ai/flows/transform-image-flow';
 
 type ImageRecord = {
     id: string;
@@ -30,60 +31,20 @@ type ImageRecord = {
     timestamp: any;
 };
 
-// Helper function to generate an image from text
-const generateImageFromText = async (prompt: string): Promise<Blob> => {
-    return new Promise((resolve) => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        // Set canvas dimensions
-        const width = 800;
-        const height = 600;
-        canvas.width = width;
-        canvas.height = height;
-
-        // Background
-        ctx.fillStyle = '#F0F9FF'; // Light blue background
-        ctx.fillRect(0, 0, width, height);
-
-        // Text properties
-        ctx.fillStyle = '#0F172A'; // Dark text
-        ctx.font = 'bold 48px "PT Sans"';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Wrap text
-        const words = prompt.split(' ');
-        let line = '';
-        const lines = [];
-        const maxWidth = width - 80;
-        for (let n = 0; n < words.length; n++) {
-            const testLine = line + words[n] + ' ';
-            const metrics = ctx.measureText(testLine);
-            const testWidth = metrics.width;
-            if (testWidth > maxWidth && n > 0) {
-                lines.push(line);
-                line = words[n] + ' ';
-            } else {
-                line = testLine;
-            }
-        }
-        lines.push(line);
-
-        // Draw lines
-        const lineHeight = 60;
-        const startY = height / 2 - (lines.length - 1) * lineHeight / 2;
-        lines.forEach((l, i) => {
-            ctx.fillText(l.trim(), width / 2, startY + i * lineHeight);
-        });
-
-        canvas.toBlob((blob) => {
-            if (blob) {
-                resolve(blob);
-            }
-        }, 'image/png');
+// Helper to convert a file to a data URI
+const toDataUri = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
     });
+};
+
+// Helper to convert a data URI to a Blob
+const fromDataUri = async (dataUri: string): Promise<Blob> => {
+    const res = await fetch(dataUri);
+    return res.blob();
 };
 
 
@@ -142,14 +103,17 @@ function ImageProcessor() {
         setOriginalImageUrl(originalDownloadURL);
 
         // 2. Generate transformed image from prompt
-        setLoadingMessage('Generating transformed image...');
-        const transformedImageBlob = await generateImageFromText(prompt);
+        setLoadingMessage('Decorating your room...');
+        const originalImageDataUri = await toDataUri(originalImage);
+        const transformedImageResponse = await transformImage({ image: originalImageDataUri, prompt });
+
+        const transformedImageBlob = await fromDataUri(transformedImageResponse.imageUrl);
         const transformedFileName = `transformed-${uuidv4()}.png`;
-        const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-transformed-${transformedFileName}`;
+        const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-${transformedFileName}`;
         const transformedStorageRef = ref(storage, transformedFilePath);
         
         // 3. Upload transformed image
-        setLoadingMessage('Uploading transformed image...');
+        setLoadingMessage('Uploading new image...');
         const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
         const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
         setTransformedImageUrl(transformedDownloadURL);
@@ -178,7 +142,7 @@ function ImageProcessor() {
 
         toast({
           title: "Image Processed!",
-          description: "The image was successfully processed and saved.",
+          description: "The image was successfully transformed and saved.",
         });
 
     } catch (error) {
@@ -186,7 +150,7 @@ function ImageProcessor() {
         toast({
             variant: "destructive",
             title: "An error occurred",
-            description: "There was a problem with the upload process.",
+            description: (error as Error).message || "There was a problem with the image transformation or upload process.",
         });
     } finally {
         setIsLoading(false);
@@ -198,22 +162,22 @@ function ImageProcessor() {
   return (
     <Card className="w-full max-w-2xl">
         <CardHeader>
-            <CardTitle>Image Processor</CardTitle>
-            <CardDescription>Upload an image and provide a prompt to generate a new version.</CardDescription>
+            <CardTitle>Image Decorator</CardTitle>
+            <CardDescription>Upload a picture of a room and provide a style to decorate it with AI.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
                  <div className="space-y-2">
-                    <Label htmlFor="image-upload">Upload Image</Label>
+                    <Label htmlFor="image-upload">1. Upload Room Image</Label>
                     <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
                  </div>
                  <div className="space-y-2">
-                    <Label htmlFor="prompt">Prompt</Label>
-                    <Input id="prompt" type="text" placeholder="Enter text for the new image..." value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} />
+                    <Label htmlFor="prompt">2. Enter Decoration Style</Label>
+                    <Input id="prompt" type="text" placeholder="e.g., 'Modern minimalist', 'Bohemian', 'Coastal grandmother'..." value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} />
                 </div>
             </div>
 
-            {(originalImageUrl || transformedImageUrl) && (
+            {(originalImageUrl || isLoading) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <h3 className="font-semibold">Original</h3>
@@ -247,7 +211,7 @@ function ImageProcessor() {
             )}
             
             <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Upload and Process Image"}
+                {isLoading ? loadingMessage : "Decorate and Save Image"}
                 <Wand2 className="ml-2" />
             </Button>
         </CardContent>
