@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "task": {
+      "title": "Task",
+      "description": "A single task item",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the task"
+        },
+        "description": {
+          "type": "string",
+          "description": "The description of the task"
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the task is completed"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The creation timestamp of the task"
+        }
+      },
+      "required": [
+        "title",
+        "completed",
+        "createdAt"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password"
+    ]
+  },
+  "firestore": {
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": {
+        "$ref": "#/entities/task"
+      },
+      "description": "Stores tasks for each user."
+    }
+  }
+}

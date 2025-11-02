@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { Timestamp } from 'firebase/firestore';
 
 interface TaskItemProps {
   task: Task;
@@ -28,7 +29,8 @@ interface TaskItemProps {
 
 export default function TaskItem({ task, onEdit, onDelete, onToggleComplete }: TaskItemProps) {
   
-  const timeAgo = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
+  const createdAtDate = task.createdAt instanceof Timestamp ? task.createdAt.toDate() : new Date(task.createdAt);
+  const timeAgo = formatDistanceToNow(createdAtDate, { addSuffix: true });
 
   return (
     <Card className={cn("transition-all text-left", task.completed && "bg-card/60")}>
