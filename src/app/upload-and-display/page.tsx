@@ -12,31 +12,10 @@ import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { transformImage } from '@/ai/flows/transform-image-flow';
 import { v4 as uuidv4 } from 'uuid';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
-
-function fileToDataUri(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-function dataUriToBlob(dataUri: string): Blob {
-    const byteString = atob(dataUri.split(',')[1]);
-    const mimeString = dataUri.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    return new Blob([ab], { type: mimeString });
-}
 
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
@@ -86,8 +65,8 @@ function ImageProcessor() {
         const originalFileName = originalImage.name;
         const originalFilePath = `user-uploads/${user.uid}/${originalTimestamp}-original-${originalFileName}`;
         const originalStorageRef = ref(storage, originalFilePath);
-        const uploadResult = await uploadBytes(originalStorageRef, originalImage);
-        const originalDownloadURL = await getDownloadURL(uploadResult.ref);
+        const originalUploadResult = await uploadBytes(originalStorageRef, originalImage);
+        const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
         setOriginalImageUrl(originalDownloadURL);
 
         toast({
@@ -95,29 +74,17 @@ function ImageProcessor() {
             description: "Your original image has been uploaded.",
         });
 
-        // 2. Transform the image
-        setLoadingMessage('Transforming image with AI...');
-        const originalImageDataUri = await fileToDataUri(originalImage);
-        const transformResult = await transformImage({
-            imageDataUri: originalImageDataUri,
-            prompt: "assume image is of a room in a domestic house. Decorate & Furnish this room in an art deco style"
-        });
-        
-        const transformedImageDataUri = transformResult.transformedImageUrl;
-        setTransformedImageUrl(transformedImageDataUri); // Show preview immediately
-
-        // 3. Upload transformed image
-        setLoadingMessage('Uploading transformed image...');
-        const transformedImageBlob = dataUriToBlob(transformedImageDataUri);
+        // 2. Upload duplicate "transformed" image
+        setLoadingMessage('Duplicating and uploading image...');
         const transformedTimestamp = Date.now();
-        const transformedFileName = `transformed-${uuidv4()}.png`;
+        const transformedFileName = `transformed-${uuidv4()}-${originalFileName}`;
         const transformedFilePath = `user-uploads/${user.uid}/${transformedTimestamp}-${transformedFileName}`;
         const transformedStorageRef = ref(storage, transformedFilePath);
-        await uploadBytes(transformedStorageRef, transformedImageBlob);
-        const transformedDownloadURL = await getDownloadURL(transformedStorageRef);
+        const transformedUploadResult = await uploadBytes(transformedStorageRef, originalImage);
+        const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
         setTransformedImageUrl(transformedDownloadURL);
 
-        // 4. Save record to Firestore
+        // 3. Save record to Firestore
         setLoadingMessage('Saving record...');
         const imageRecord = {
             userId: user.uid,
@@ -139,8 +106,8 @@ function ImageProcessor() {
         });
 
         toast({
-          title: "Image Transformed!",
-          description: "The AI has worked its magic and everything is saved.",
+          title: "Image Processed!",
+          description: "The original image was duplicated and saved.",
         });
 
     } catch (error) {
@@ -148,7 +115,7 @@ function ImageProcessor() {
         toast({
             variant: "destructive",
             title: "An error occurred",
-            description: "There was a problem with the upload and transform process.",
+            description: "There was a problem with the upload process.",
         });
     } finally {
         setIsLoading(false);
@@ -161,7 +128,7 @@ function ImageProcessor() {
     <Card className="w-full max-w-2xl">
         <CardHeader>
             <CardTitle>Image Processor</CardTitle>
-            <CardDescription>Upload an image and let the AI transform it.</CardDescription>
+            <CardDescription>Upload an image to duplicate it and save both copies.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
@@ -203,7 +170,7 @@ function ImageProcessor() {
             )}
             
             <Button onClick={handleUploadAndTransform} disabled={!originalImage || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Upload and Transform with AI"}
+                {isLoading ? loadingMessage : "Upload and Duplicate Image"}
                 <Wand2 className="ml-2" />
             </Button>
         </CardContent>
