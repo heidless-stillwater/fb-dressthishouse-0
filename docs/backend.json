@@ -88,6 +88,10 @@
           "type": "string",
           "description": "The original file name of the uploaded image."
         },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt used for the image transformation."
+        },
         "timestamp": {
           "type": "string",
           "format": "date-time",
@@ -99,6 +103,7 @@
         "originalImageUrl",
         "transformedImageUrl",
         "originalFileName",
+        "prompt",
         "timestamp"
       ]
     }

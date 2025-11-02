@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -21,6 +22,7 @@ service cloud.firestore {
              recordData.originalImageUrl is string &&
              recordData.transformedImageUrl is string &&
              recordData.originalFileName is string &&
+             recordData.prompt is string &&
              recordData.timestamp == request.time;
     }
 
