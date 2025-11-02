@@ -1,28 +1,53 @@
 
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useUser, useStorage } from '@/firebase';
+import { useUser, useStorage, useFirestore } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Upload, Wand2, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
+import { transformImage } from '@/ai/flows/transform-image-flow';
+import { v4 as uuidv4 } from 'uuid';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { FirestorePermissionError } from '@/firebase/errors';
+import { errorEmitter } from '@/firebase/error-emitter';
 
+function fileToDataUri(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function dataUriToBlob(dataUri: string): Blob {
+    const byteString = atob(dataUri.split(',')[1]);
+    const mimeString = dataUri.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], { type: mimeString });
+}
 
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const { toast } = useToast();
   const { user } = useUser();
   const storage = useStorage();
+  const firestore = useFirestore();
 
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,55 +67,95 @@ function ImageProcessor() {
     }
   };
   
-  const handleUpload = async () => {
-    if (!originalImage || !user || !storage) {
+  const handleUploadAndTransform = async () => {
+    if (!originalImage || !user || !storage || !firestore) {
         toast({
             variant: "destructive",
-            title: "Upload failed",
-            description: "No image selected or user not authenticated.",
+            title: "Operation failed",
+            description: "Missing image, user authentication, or Firebase service.",
         });
         return;
     }
 
     setIsLoading(true);
-    const timestamp = Date.now();
-    const filePath = `user-uploads/${user.uid}/${timestamp}-original-${originalImage.name}`;
-    const storageRef = ref(storage, filePath);
 
     try {
-        const uploadResult = await uploadBytes(storageRef, originalImage);
-        const downloadURL = await getDownloadURL(uploadResult.ref);
-        
-        setOriginalImageUrl(downloadURL); // Set persistent URL after upload
-        
+        // 1. Upload original image
+        setLoadingMessage('Uploading original image...');
+        const originalTimestamp = Date.now();
+        const originalFileName = originalImage.name;
+        const originalFilePath = `user-uploads/${user.uid}/${originalTimestamp}-original-${originalFileName}`;
+        const originalStorageRef = ref(storage, originalFilePath);
+        const uploadResult = await uploadBytes(originalStorageRef, originalImage);
+        const originalDownloadURL = await getDownloadURL(uploadResult.ref);
+        setOriginalImageUrl(originalDownloadURL); // Set persistent URL
+
         toast({
             title: "Upload successful!",
-            description: "Your image has been uploaded.",
+            description: "Your original image has been uploaded.",
+        });
+
+        // 2. Transform the image
+        setLoadingMessage('Transforming image with AI...');
+        const originalImageDataUri = await fileToDataUri(originalImage);
+        const transformResult = await transformImage({
+            imageDataUri: originalImageDataUri,
+            prompt: "assume image is of a room in a domestic house. Decorate & Furnish this room in an art deco style"
+        });
+        
+        const transformedImageDataUri = transformResult.transformedImageUrl;
+        setTransformedImageUrl(transformedImageDataUri); // Show preview immediately
+
+        // 3. Upload transformed image
+        setLoadingMessage('Uploading transformed image...');
+        const transformedImageBlob = dataUriToBlob(transformedImageDataUri);
+        const transformedTimestamp = Date.now();
+        const transformedFileName = `transformed-${uuidv4()}.png`;
+        const transformedFilePath = `user-uploads/${user.uid}/${transformedTimestamp}-${transformedFileName}`;
+        const transformedStorageRef = ref(storage, transformedFilePath);
+        const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
+        const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
+        setTransformedImageUrl(transformedDownloadURL); // Set persistent URL
+
+        // 4. Save record to Firestore
+        setLoadingMessage('Saving records...');
+        const imageRecord = {
+            userId: user.uid,
+            originalImageUrl: originalDownloadURL,
+            transformedImageUrl: transformedDownloadURL,
+            originalFileName: originalFileName,
+            timestamp: serverTimestamp(),
+        };
+
+        const collectionRef = collection(firestore, 'imageRecords');
+        await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: collectionRef.path,
+                operation: 'create',
+                requestResourceData: imageRecord,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw new Error("Could not save image record to database.");
+        });
+
+        toast({
+          title: "Image Transformed!",
+          description: "The AI has worked its magic and everything is saved.",
         });
 
     } catch (error) {
-        console.error("Upload error:", error);
+        console.error("Operation error:", error);
         toast({
             variant: "destructive",
-            title: "Upload failed",
-            description: "There was a problem uploading your image.",
+            title: "An error occurred",
+            description: "There was a problem with the upload and transform process.",
         });
     } finally {
         setIsLoading(false);
+        setLoadingMessage('');
     }
   };
 
-  const handleTransform = async () => {
-    // Placeholder for AI transformation logic
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate AI processing
-    setTransformedImageUrl("https://picsum.photos/seed/transformed/600/400");
-    setIsLoading(false);
-    toast({
-      title: "Image Transformed!",
-      description: "The AI has worked its magic.",
-    });
-  };
 
   return (
     <Card className="w-full max-w-2xl">
@@ -104,10 +169,7 @@ function ImageProcessor() {
                     Upload Image
                  </label>
                  <div className="flex gap-4">
-                    <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" />
-                    <Button onClick={handleUpload} disabled={!originalImage || isLoading}>
-                        {isLoading ? 'Uploading...' : <><Upload className="mr-2" /> Upload Image</>}
-                    </Button>
+                    <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
                  </div>
             </div>
 
@@ -117,7 +179,7 @@ function ImageProcessor() {
                         <h3 className="font-semibold">Original</h3>
                         {originalImageUrl ? (
                             <div className="relative aspect-video">
-                                <Image src={originalImageUrl} alt="Original" layout="fill" className="rounded-md object-cover" />
+                                <Image src={originalImageUrl} alt="Original" fill className="rounded-md object-cover" />
                             </div>
                         ) : (
                            <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
@@ -129,7 +191,7 @@ function ImageProcessor() {
                         <h3 className="font-semibold">Transformed</h3>
                         {transformedImageUrl ? (
                              <div className="relative aspect-video">
-                                <Image src={transformedImageUrl} alt="Transformed" layout="fill" className="rounded-md object-cover" />
+                                <Image src={transformedImageUrl} alt="Transformed" fill className="rounded-md object-cover" />
                             </div>
                         ) : (
                            <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
@@ -140,13 +202,10 @@ function ImageProcessor() {
                 </div>
             )}
             
-            {originalImageUrl && !transformedImageUrl && (
-                 <Button onClick={handleTransform} disabled={isLoading} className="w-full">
-                    {isLoading ? "Transforming..." : "Transform with AI"}
-                    <Wand2 className="ml-2" />
-                 </Button>
-            )}
-
+            <Button onClick={handleUploadAndTransform} disabled={!originalImage || isLoading} className="w-full">
+                {isLoading ? loadingMessage : "Upload and Transform with AI"}
+                <Wand2 className="ml-2" />
+            </Button>
         </CardContent>
     </Card>
   );
