@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -31,6 +32,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import Image from 'next/image';
 
 type ImageRecord = {
     id: string;
@@ -135,6 +137,7 @@ function FileManager() {
             <Table>
                 <TableHeader>
                     <TableRow>
+                        <TableHead>Thumbnail</TableHead>
                         <TableHead>Filename</TableHead>
                         <TableHead>Prompt</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -143,6 +146,16 @@ function FileManager() {
                 <TableBody>
                     {imageRecords.length > 0 ? imageRecords.map((record) => (
                         <TableRow key={record.id}>
+                            <TableCell>
+                                <div className="relative h-12 w-16 rounded-md overflow-hidden">
+                                <Image
+                                    src={record.originalImageUrl}
+                                    alt={`Thumbnail for ${record.originalFileName}`}
+                                    fill
+                                    className="object-cover"
+                                />
+                                </div>
+                            </TableCell>
                             <TableCell className="font-medium">{record.originalFileName}</TableCell>
                             <TableCell>{record.prompt}</TableCell>
                             <TableCell className="text-right space-x-2">
@@ -177,7 +190,7 @@ function FileManager() {
                         </TableRow>
                     )) : (
                         <TableRow>
-                            <TableCell colSpan={3} className="text-center h-24">No files found.</TableCell>
+                            <TableCell colSpan={4} className="text-center h-24">No files found.</TableCell>
                         </TableRow>
                     )}
                 </TableBody>
