@@ -137,7 +137,7 @@ function FileManager() {
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Thumbnail</TableHead>
+                        <TableHead>Images (Original / Transformed)</TableHead>
                         <TableHead>Filename</TableHead>
                         <TableHead>Prompt</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -147,13 +147,23 @@ function FileManager() {
                     {imageRecords.length > 0 ? imageRecords.map((record) => (
                         <TableRow key={record.id}>
                             <TableCell>
-                                <div className="relative h-12 w-16 rounded-md overflow-hidden">
-                                <Image
-                                    src={record.originalImageUrl}
-                                    alt={`Thumbnail for ${record.originalFileName}`}
-                                    fill
-                                    className="object-cover"
-                                />
+                                <div className="flex items-center gap-2">
+                                    <div className="relative h-12 w-16 rounded-md overflow-hidden">
+                                        <Image
+                                            src={record.originalImageUrl}
+                                            alt={`Original thumbnail for ${record.originalFileName}`}
+                                            fill
+                                            className="object-cover"
+                                        />
+                                    </div>
+                                    <div className="relative h-12 w-16 rounded-md overflow-hidden">
+                                        <Image
+                                            src={record.transformedImageUrl}
+                                            alt={`Transformed thumbnail for ${record.originalFileName}`}
+                                            fill
+                                            className="object-cover"
+                                        />
+                                    </div>
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{record.originalFileName}</TableCell>
