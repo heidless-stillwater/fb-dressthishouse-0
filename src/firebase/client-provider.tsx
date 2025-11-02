@@ -24,8 +24,8 @@ export function FirebaseClientProvider({ children }: { children: ReactNode }) {
 
   if (!isMounted || !firebase) {
     // On the server or before the client has mounted, we can return a loader or null.
-    // Returning null might be better to avoid layout shifts if the content isn't ready.
-    return null;
+    // Returning null is often better to avoid layout shifts if the content isn't ready.
+    return null; 
   }
 
   return (
