@@ -102,7 +102,7 @@ function ImageProcessor() {
             const originalImageBase64 = reader.result as string;
 
             try {
-                const transformedImageBase64 = await transformImage({ image: originalImageBase64, prompt: `Replace the image with a solid light blue background. In the foreground, display the following text: "${prompt}"` });
+                const transformedImageBase64 = await transformImage({ image: originalImageBase64, prompt: prompt });
                 setTransformedImageUrl(transformedImageBase64);
 
                 // 2. Upload both images
@@ -343,3 +343,5 @@ export default function UploadAndDisplayPage() {
     </main>
   );
 }
+
+    
