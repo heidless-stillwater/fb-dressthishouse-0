@@ -15,11 +15,24 @@ service cloud.firestore {
              taskData.completed is bool &&
              (taskData.createdAt == request.time || taskData.createdAt is timestamp);
     }
+    
+    function isValidImageRecord(recordData) {
+      return recordData.userId is string &&
+             recordData.originalImageUrl is string &&
+             recordData.transformedImageUrl is string &&
+             recordData.originalFileName is string &&
+             recordData.timestamp == request.time;
+    }
 
     match /users/{userId}/tasks/{taskId} {
       allow read, delete: if isOwner(userId);
       allow create: if isOwner(userId) && isValidTask(request.resource.data);
       allow update: if isOwner(userId) && isValidTask(request.resource.data);
+    }
+
+    match /imageRecords/{recordId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId) && isValidImageRecord(request.resource.data);
     }
   }
 }
