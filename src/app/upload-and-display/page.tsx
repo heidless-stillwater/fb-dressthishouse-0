@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useUser } from '@/firebase';
+import { useUser, useStorage } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Upload, Wand2, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
 
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
@@ -19,6 +21,9 @@ function ImageProcessor() {
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { user } = useUser();
+  const storage = useStorage();
+
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -34,6 +39,44 @@ function ImageProcessor() {
       setOriginalImage(file);
       setOriginalImageUrl(URL.createObjectURL(file));
       setTransformedImageUrl(null);
+    }
+  };
+  
+  const handleUpload = async () => {
+    if (!originalImage || !user || !storage) {
+        toast({
+            variant: "destructive",
+            title: "Upload failed",
+            description: "No image selected or user not authenticated.",
+        });
+        return;
+    }
+
+    setIsLoading(true);
+    const timestamp = Date.now();
+    const filePath = `user-uploads/${user.uid}/${timestamp}-original-${originalImage.name}`;
+    const storageRef = ref(storage, filePath);
+
+    try {
+        const uploadResult = await uploadBytes(storageRef, originalImage);
+        const downloadURL = await getDownloadURL(uploadResult.ref);
+        
+        setOriginalImageUrl(downloadURL); // Set persistent URL after upload
+        
+        toast({
+            title: "Upload successful!",
+            description: "Your image has been uploaded.",
+        });
+
+    } catch (error) {
+        console.error("Upload error:", error);
+        toast({
+            variant: "destructive",
+            title: "Upload failed",
+            description: "There was a problem uploading your image.",
+        });
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -56,24 +99,26 @@ function ImageProcessor() {
             <CardDescription>Upload an image and let the AI transform it.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-             <div className="space-y-2">
+             <div className="space-y-4">
                  <label htmlFor="image-upload" className="block text-sm font-medium text-gray-700 sr-only">
                     Upload Image
                  </label>
-                 <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} />
+                 <div className="flex gap-4">
+                    <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" />
+                    <Button onClick={handleUpload} disabled={!originalImage || isLoading}>
+                        {isLoading ? 'Uploading...' : <><Upload className="mr-2" /> Upload Image</>}
+                    </Button>
+                 </div>
             </div>
-
-            <Button disabled={!originalImage}>
-                <Upload className="mr-2" />
-                Upload Images
-            </Button>
 
             {(originalImageUrl || transformedImageUrl) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <h3 className="font-semibold">Original</h3>
                         {originalImageUrl ? (
-                            <Image src={originalImageUrl} alt="Original" width={600} height={400} className="rounded-md object-cover aspect-video" />
+                            <div className="relative aspect-video">
+                                <Image src={originalImageUrl} alt="Original" layout="fill" className="rounded-md object-cover" />
+                            </div>
                         ) : (
                            <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
                                <ImageIcon className="text-gray-400" size={48} />
@@ -83,7 +128,9 @@ function ImageProcessor() {
                      <div className="space-y-2">
                         <h3 className="font-semibold">Transformed</h3>
                         {transformedImageUrl ? (
-                            <Image src={transformedImageUrl} alt="Transformed" width={600} height={400} className="rounded-md object-cover aspect-video" />
+                             <div className="relative aspect-video">
+                                <Image src={transformedImageUrl} alt="Transformed" layout="fill" className="rounded-md object-cover" />
+                            </div>
                         ) : (
                            <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
                                <Wand2 className="text-gray-400" size={48} />
@@ -93,7 +140,7 @@ function ImageProcessor() {
                 </div>
             )}
             
-            {originalImage && (
+            {originalImageUrl && !transformedImageUrl && (
                  <Button onClick={handleTransform} disabled={isLoading} className="w-full">
                     {isLoading ? "Transforming..." : "Transform with AI"}
                     <Wand2 className="ml-2" />
@@ -109,14 +156,19 @@ function ImageProcessor() {
 export default function UploadAndDisplayPage() {
   const { user, loading } = useUser();
   const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isMounted && !loading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, isMounted]);
 
-  if (loading || !user) {
+  if (loading || !isMounted || !user) {
     return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
   }
 
