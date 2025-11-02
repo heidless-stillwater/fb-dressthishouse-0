@@ -178,6 +178,20 @@ function ImageProcessor() {
   );
 }
 
+function ImageGallery() {
+  return (
+    <Card className="w-full max-w-2xl mt-8">
+      <CardHeader>
+        <CardTitle>Image Gallery</CardTitle>
+        <CardDescription>View your uploaded and transformed images here.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p>Gallery will be displayed here.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 
 export default function UploadAndDisplayPage() {
   const { user, loading } = useUser();
@@ -210,6 +224,7 @@ export default function UploadAndDisplayPage() {
       </div>
       <div className="w-full max-w-2xl mt-20">
         <ImageProcessor />
+        <ImageGallery />
       </div>
     </main>
   );
