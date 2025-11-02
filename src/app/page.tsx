@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Plus, LogOut } from 'lucide-react';
@@ -157,10 +158,15 @@ export default function Home() {
                 <h1 className="text-4xl md:text-5xl font-bold">TaskFlow</h1>
                 <p className="text-muted-foreground">Welcome, {user.email}</p>
             </div>
-            <Button variant="ghost" onClick={handleSignOut}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-            </Button>
+            <div className="flex items-center gap-4">
+                <Link href="/contact" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+                    Contact
+                </Link>
+                <Button variant="ghost" onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign Out
+                </Button>
+            </div>
         </header>
         
         <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
