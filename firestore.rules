@@ -19,6 +19,7 @@ service cloud.firestore {
     
     function isValidImageRecord(recordData) {
       return recordData.userId is string &&
+             isOwner(recordData.userId) &&
              recordData.originalImageUrl is string &&
              recordData.transformedImageUrl is string &&
              recordData.originalFileName is string &&
@@ -34,7 +35,7 @@ service cloud.firestore {
 
     match /imageRecords/{recordId} {
       allow read: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId) && isValidImageRecord(request.resource.data);
+      allow create: if isValidImageRecord(request.resource.data);
     }
   }
 }

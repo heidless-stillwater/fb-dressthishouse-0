@@ -18,6 +18,7 @@ import { errorEmitter } from '@/firebase/error-emitter';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
+import { v4 as uuidv4 } from 'uuid';
 
 type ImageRecord = {
     id: string;
@@ -29,8 +30,66 @@ type ImageRecord = {
     timestamp: any;
 };
 
+// Helper function to generate an image from text
+const generateImageFromText = async (prompt: string): Promise<Blob> => {
+    return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Set canvas dimensions
+        const width = 800;
+        const height = 600;
+        canvas.width = width;
+        canvas.height = height;
+
+        // Background
+        ctx.fillStyle = '#F0F9FF'; // Light blue background
+        ctx.fillRect(0, 0, width, height);
+
+        // Text properties
+        ctx.fillStyle = '#0F172A'; // Dark text
+        ctx.font = 'bold 48px "PT Sans"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Wrap text
+        const words = prompt.split(' ');
+        let line = '';
+        const lines = [];
+        const maxWidth = width - 80;
+        for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n] + ' ';
+            const metrics = ctx.measureText(testLine);
+            const testWidth = metrics.width;
+            if (testWidth > maxWidth && n > 0) {
+                lines.push(line);
+                line = words[n] + ' ';
+            } else {
+                line = testLine;
+            }
+        }
+        lines.push(line);
+
+        // Draw lines
+        const lineHeight = 60;
+        const startY = height / 2 - (lines.length - 1) * lineHeight / 2;
+        lines.forEach((l, i) => {
+            ctx.fillText(l.trim(), width / 2, startY + i * lineHeight);
+        });
+
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+            }
+        }, 'image/png');
+    });
+};
+
+
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
+  const [prompt, setPrompt] = useState('');
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,11 +118,11 @@ function ImageProcessor() {
   };
   
   const handleUpload = async () => {
-    if (!originalImage || !user || !storage || !firestore) {
+    if (!originalImage || !prompt || !user || !storage || !firestore) {
         toast({
             variant: "destructive",
             title: "Operation failed",
-            description: "Missing image, user authentication, or Firebase service.",
+            description: "Missing image, prompt, user authentication, or Firebase service.",
         });
         return;
     }
@@ -74,32 +133,35 @@ function ImageProcessor() {
     try {
         // 1. Upload original image
         setLoadingMessage('Uploading original image...');
-        const originalTimestamp = Date.now();
+        const timestamp = Date.now();
         const originalFileName = originalImage.name;
-        const originalFilePath = `user-uploads/${user.uid}/${originalTimestamp}-original-${originalFileName}`;
+        const originalFilePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
         const originalStorageRef = ref(storage, originalFilePath);
         const originalUploadResult = await uploadBytes(originalStorageRef, originalImage);
         const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
         setOriginalImageUrl(originalDownloadURL);
 
-        toast({
-            title: "Upload successful!",
-            description: "Your original image has been uploaded.",
-        });
+        // 2. Generate transformed image from prompt
+        setLoadingMessage('Generating transformed image...');
+        const transformedImageBlob = await generateImageFromText(prompt);
+        const transformedFileName = `transformed-${uuidv4()}.png`;
+        const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-transformed-${transformedFileName}`;
+        const transformedStorageRef = ref(storage, transformedFilePath);
+        
+        // 3. Upload transformed image
+        setLoadingMessage('Uploading transformed image...');
+        const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
+        const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
+        setTransformedImageUrl(transformedDownloadURL);
 
-        // 2. Use a placeholder for the transformed image
-        setLoadingMessage('Generating placeholder...');
-        const placeholderImageUrl = `https://picsum.photos/seed/${originalTimestamp}/800/600`;
-        setTransformedImageUrl(placeholderImageUrl);
-
-        // 3. Save record to Firestore
+        // 4. Save record to Firestore
         setLoadingMessage('Saving record...');
         const imageRecord = {
             userId: user.uid,
             originalImageUrl: originalDownloadURL,
-            transformedImageUrl: placeholderImageUrl,
+            transformedImageUrl: transformedDownloadURL,
             originalFileName: originalFileName,
-            prompt: 'placeholder', // Using a placeholder value for the prompt
+            prompt: prompt,
             timestamp: serverTimestamp(),
         };
 
@@ -137,7 +199,7 @@ function ImageProcessor() {
     <Card className="w-full max-w-2xl">
         <CardHeader>
             <CardTitle>Image Processor</CardTitle>
-            <CardDescription>Upload an image to process and save it to your gallery.</CardDescription>
+            <CardDescription>Upload an image and provide a prompt to generate a new version.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
@@ -145,6 +207,10 @@ function ImageProcessor() {
                     <Label htmlFor="image-upload">Upload Image</Label>
                     <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
                  </div>
+                 <div className="space-y-2">
+                    <Label htmlFor="prompt">Prompt</Label>
+                    <Input id="prompt" type="text" placeholder="Enter text for the new image..." value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} />
+                </div>
             </div>
 
             {(originalImageUrl || transformedImageUrl) && (
@@ -180,7 +246,7 @@ function ImageProcessor() {
                 </div>
             )}
             
-            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
+            <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
                 {isLoading ? loadingMessage : "Upload and Process Image"}
                 <Wand2 className="ml-2" />
             </Button>
@@ -227,6 +293,9 @@ function ImageGallery() {
                         <p className="text-sm text-muted-foreground mb-2">
                            File: <span className="font-medium text-foreground">{record.originalFileName}</span>
                         </p>
+                        <p className="text-sm text-muted-foreground mb-2">
+                           Prompt: <span className="font-medium text-foreground italic">"{record.prompt}"</span>
+                        </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <h3 className="font-semibold">Original</h3>
@@ -237,7 +306,7 @@ function ImageGallery() {
                             <div className="space-y-2">
                                 <h3 className="font-semibold">Transformed</h3>
                                 <div className="relative aspect-video">
-                                    <Image src={record.transformedImageUrl} alt={`Transformed ${record.originalFileName}`} fill className="rounded-md object-cover" />
+                                    <Image src={record.transformedImageUrl} alt={`Transformed with prompt: ${record.prompt}`} fill className="rounded-md object-cover" />
                                 </div>
                             </div>
                         </div>
