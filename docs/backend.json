@@ -64,6 +64,43 @@
         }
       },
       "required": ["name", "email", "message", "createdAt"]
+    },
+    "imageRecord": {
+      "title": "Image Record",
+      "description": "Stores information about an original and transformed image.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who uploaded the image."
+        },
+        "originalImageUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the original uploaded image in Firebase Storage."
+        },
+        "transformedImageUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the AI-transformed image in Firebase Storage."
+        },
+        "originalFileName": {
+          "type": "string",
+          "description": "The original file name of the uploaded image."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The creation timestamp of the record."
+        }
+      },
+      "required": [
+        "userId",
+        "originalImageUrl",
+        "transformedImageUrl",
+        "originalFileName",
+        "timestamp"
+      ]
     }
   },
   "auth": {
@@ -83,8 +120,12 @@
         "$ref": "#/entities/contactSubmission"
       },
       "description": "Stores submissions from the contact form."
+    },
+    "/imageRecords/{recordId}": {
+        "schema": {
+            "$ref": "#/entities/imageRecord"
+        },
+        "description": "Stores records of original and transformed images."
     }
   }
 }
-
-    
