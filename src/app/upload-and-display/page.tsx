@@ -15,6 +15,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { addDoc, collection, serverTimestamp, query, where, orderBy } from 'firebase/firestore';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
+import { transformImage } from '@/ai/flows/transform-image-flow';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -32,6 +33,7 @@ type ImageRecord = {
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState('');
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -41,29 +43,49 @@ function ImageProcessor() {
   const firestore = useFirestore();
 
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        toast({
-          variant: "destructive",
-          title: "File too large",
-          description: "Please select an image smaller than 5MB.",
-        });
-        return;
-      }
-      setOriginalImage(file);
-      setOriginalImageUrl(URL.createObjectURL(file));
-      setTransformedImageUrl(null);
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, files } = event.target;
+    if (name === 'image' && files?.[0]) {
+        const file = files[0];
+         if (file.size > 5 * 1024 * 1024) { // 5MB limit
+            toast({
+              variant: "destructive",
+              title: "File too large",
+              description: "Please select an image smaller than 5MB.",
+            });
+            return;
+        }
+        setOriginalImage(file);
+        setOriginalImageUrl(URL.createObjectURL(file));
+        setTransformedImageUrl(null);
+    } else if (name === 'prompt') {
+        setPrompt(value);
     }
   };
   
-  const handleUpload = async () => {
-    if (!originalImage || !user || !storage || !firestore) {
+  const handleUploadAndTransform = async () => {
+    if (!originalImage) {
         toast({
             variant: "destructive",
-            title: "Operation failed",
-            description: "Missing image, user authentication, or Firebase service.",
+            title: "Missing Image",
+            description: "Please select an image to transform.",
+        });
+        return;
+    }
+     if (!prompt) {
+        toast({
+            variant: "destructive",
+            title: "Missing Prompt",
+            description: "Please provide a prompt to guide the transformation.",
+        });
+        return;
+    }
+
+    if (!user || !storage || !firestore) {
+        toast({
+            variant: "destructive",
+            title: "Services not available",
+            description: "Could not connect to Firebase services. Please try again later.",
         });
         return;
     }
@@ -72,53 +94,83 @@ function ImageProcessor() {
     setTransformedImageUrl(null);
 
     try {
-        // 1. Upload original image
-        setLoadingMessage('Uploading original image...');
-        const timestamp = Date.now();
-        const originalFileName = originalImage.name;
-        const originalFilePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
-        const originalStorageRef = ref(storage, originalFilePath);
-        const originalUploadResult = await uploadBytes(originalStorageRef, originalImage);
-        const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
-        setOriginalImageUrl(originalDownloadURL);
+        // 1. Transform Image
+        setLoadingMessage('Transforming image...');
+        const reader = new FileReader();
+        reader.readAsDataURL(originalImage);
+        reader.onload = async () => {
+            const originalImageBase64 = reader.result as string;
 
-        // 2. Upload duplicate image as transformed image
-        setLoadingMessage('Creating duplicate image...');
-        const transformedFileName = `transformed-${originalFileName}`;
-        const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-${transformedFileName}`;
-        const transformedStorageRef = ref(storage, transformedFilePath);
-        
-        const transformedUploadResult = await uploadBytes(transformedStorageRef, originalImage);
-        const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
-        setTransformedImageUrl(transformedDownloadURL);
+            try {
+                const transformedImageBase64 = await transformImage({ image: originalImageBase64, prompt: `Replace the image with a solid light blue background. In the foreground, display the following text: "${prompt}"` });
+                setTransformedImageUrl(transformedImageBase64);
 
-        // 3. Save record to Firestore
-        setLoadingMessage('Saving record...');
-        const imageRecord = {
-            userId: user.uid,
-            originalImageUrl: originalDownloadURL,
-            transformedImageUrl: transformedDownloadURL,
-            originalFileName: originalFileName,
-            prompt: "Duplicated image",
-            timestamp: serverTimestamp(),
+                // 2. Upload both images
+                setLoadingMessage('Uploading images...');
+                const timestamp = Date.now();
+                const originalFileName = originalImage.name;
+                
+                // Upload original image
+                const originalFilePath = `user-uploads/${user.uid}/${timestamp}-original-${originalFileName}`;
+                const originalStorageRef = ref(storage, originalFilePath);
+                const originalUploadResult = await uploadBytes(originalStorageRef, originalImage);
+                const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
+                
+                // Upload transformed image
+                const transformedImageBlob = await (await fetch(transformedImageBase64)).blob();
+                const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-transformed-${originalFileName}`;
+                const transformedStorageRef = ref(storage, transformedFilePath);
+                const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
+                const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
+
+                // 3. Save record to Firestore
+                setLoadingMessage('Saving record...');
+                const imageRecord = {
+                    userId: user.uid,
+                    originalImageUrl: originalDownloadURL,
+                    transformedImageUrl: transformedDownloadURL,
+                    originalFileName: originalFileName,
+                    prompt: prompt,
+                    timestamp: serverTimestamp(),
+                };
+
+                const collectionRef = collection(firestore, 'imageRecords');
+                await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
+                    const permissionError = new FirestorePermissionError({
+                        path: collectionRef.path,
+                        operation: 'create',
+                        requestResourceData: imageRecord,
+                    });
+                    errorEmitter.emit('permission-error', permissionError);
+                    throw new Error("Could not save image record to database.");
+                });
+
+                toast({
+                  title: "Image Processed!",
+                  description: "The image was successfully transformed and saved.",
+                });
+
+            } catch (error) {
+                console.error("Transformation or upload error:", error);
+                toast({
+                    variant: "destructive",
+                    title: "An error occurred",
+                    description: (error as Error).message || "There was a problem with the image transformation process.",
+                });
+            } finally {
+                setIsLoading(false);
+                setLoadingMessage('');
+            }
         };
-
-        const collectionRef = collection(firestore, 'imageRecords');
-        await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
-            const permissionError = new FirestorePermissionError({
-                path: collectionRef.path,
-                operation: 'create',
-                requestResourceData: imageRecord,
+        reader.onerror = (error) => {
+            console.error('Error reading file:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Error reading file',
+                description: 'Could not read the selected image file.',
             });
-            errorEmitter.emit('permission-error', permissionError);
-            throw new Error("Could not save image record to database.");
-        });
-
-        toast({
-          title: "Image Processed!",
-          description: "The image was successfully uploaded and duplicated.",
-        });
-
+            setIsLoading(false);
+        };
     } catch (error) {
         console.error("Operation error:", error);
         toast({
@@ -126,7 +178,6 @@ function ImageProcessor() {
             title: "An error occurred",
             description: (error as Error).message || "There was a problem with the image upload process.",
         });
-    } finally {
         setIsLoading(false);
         setLoadingMessage('');
     }
@@ -136,52 +187,54 @@ function ImageProcessor() {
   return (
     <Card className="w-full max-w-2xl">
         <CardHeader>
-            <CardTitle>Image Duplicator</CardTitle>
-            <CardDescription>Upload an image to save it and create a duplicate copy.</CardDescription>
+            <CardTitle>Image Transformer</CardTitle>
+            <CardDescription>Upload an image and provide a prompt to transform it.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
                  <div className="space-y-2">
                     <Label htmlFor="image-upload">1. Upload Image</Label>
-                    <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
+                    <Input id="image-upload" name="image" type="file" accept="image/*" onChange={handleInputChange} className="flex-grow" disabled={isLoading} />
                  </div>
+                 <div className="space-y-2">
+                    <Label htmlFor="prompt">2. Enter Prompt</Label>
+                    <Input id="prompt" name="prompt" type="text" placeholder="e.g., 'make it a cyberpunk style'" value={prompt} onChange={handleInputChange} disabled={isLoading} />
+                </div>
             </div>
 
-            {(originalImageUrl || isLoading) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <h3 className="font-semibold">Original</h3>
-                        {originalImageUrl ? (
-                            <div className="relative aspect-video">
-                                <Image src={originalImageUrl} alt="Original" fill className="rounded-md object-cover" />
-                            </div>
-                        ) : (
-                           <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
-                               <ImageIcon className="text-gray-400" size={48} />
-                           </div>
-                        )}
-                    </div>
-                     <div className="space-y-2">
-                        <h3 className="font-semibold">Transformed (Duplicate)</h3>
-                        {transformedImageUrl ? (
-                             <div className="relative aspect-video">
-                                <Image src={transformedImageUrl} alt="Transformed" fill className="rounded-md object-cover" />
-                            </div>
-                        ) : isLoading ? (
-                           <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
-                               <Wand2 className="text-gray-400 size-12 animate-pulse" />
-                           </div>
-                        ) : (
-                           <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
-                               <Wand2 className="text-gray-400" size={48} />
-                           </div>
-                        )}
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <h3 className="font-semibold">Original</h3>
+                    {originalImageUrl ? (
+                        <div className="relative aspect-video">
+                            <Image src={originalImageUrl} alt="Original" fill className="rounded-md object-cover" />
+                        </div>
+                    ) : (
+                       <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
+                           <ImageIcon className="text-gray-400" size={48} />
+                       </div>
+                    )}
                 </div>
-            )}
+                 <div className="space-y-2">
+                    <h3 className="font-semibold">Transformed</h3>
+                    {transformedImageUrl ? (
+                         <div className="relative aspect-video">
+                            <Image src={transformedImageUrl} alt="Transformed" fill className="rounded-md object-cover" />
+                        </div>
+                    ) : isLoading ? (
+                       <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
+                           <Wand2 className="text-gray-400 size-12 animate-pulse" />
+                       </div>
+                    ) : (
+                       <div className="bg-gray-100 rounded-md flex items-center justify-center aspect-video">
+                           <Wand2 className="text-gray-400" size={48} />
+                       </div>
+                    )}
+                </div>
+            </div>
             
-            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Upload and Duplicate Image"}
+            <Button onClick={handleUploadAndTransform} disabled={!originalImage || isLoading} className="w-full">
+                {isLoading ? loadingMessage : "Upload and Transform"}
                 <Wand2 className="ml-2" />
             </Button>
         </CardContent>
