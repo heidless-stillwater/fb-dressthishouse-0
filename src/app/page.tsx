@@ -159,6 +159,9 @@ export default function Home() {
                 <p className="text-muted-foreground">Welcome, {user.email}</p>
             </div>
             <div className="flex items-center gap-4">
+                <Link href="/file-manager" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+                    File Manager
+                </Link>
                 <Link href="/upload-and-display" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
                     Upload and Display
                 </Link>
