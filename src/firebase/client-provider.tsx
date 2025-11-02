@@ -34,6 +34,7 @@ export function FirebaseClientProvider({ children }: { children: ReactNode }) {
         firebaseApp={firebase.firebaseApp!}
         auth={firebase.auth!}
         firestore={firebase.firestore!}
+        storage={firebase.storage!}
       >
         {children}
       </FirebaseProvider>
@@ -41,4 +42,6 @@ export function FirebaseClientProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export { useFirebase, useFirebaseApp, useFirestore, useAuth } from './provider';
+export { useFirebase, useFirebaseApp, useFirestore, useAuth, useStorage } from './provider';
+
+    

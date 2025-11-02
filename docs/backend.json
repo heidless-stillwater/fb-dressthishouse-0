@@ -52,6 +52,15 @@
           "type": "string",
           "format": "date-time",
           "description": "The creation timestamp of the submission."
+        },
+        "attachmentUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "The URL of the uploaded attachment in Firebase Storage."
+        },
+        "attachmentName": {
+            "type": "string",
+            "description": "The original name of the attachment."
         }
       },
       "required": ["name", "email", "message", "createdAt"]
@@ -77,3 +86,5 @@
     }
   }
 }
+
+    

@@ -11,10 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft } from 'lucide-react';
-import { useFirestore } from '@/firebase';
+import { ArrowLeft, Paperclip } from 'lucide-react';
+import { useFirestore, useStorage } from '@/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, UploadTask } from 'firebase/storage';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { useCollection } from '@/firebase/firestore/use-collection';
@@ -23,6 +25,7 @@ const contactFormSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
   message: z.string().min(10, 'Message must be at least 10 characters'),
+  attachment: z.instanceof(FileList).optional(),
 });
 
 type ContactFormValues = z.infer<typeof contactFormSchema>;
@@ -32,13 +35,18 @@ type ContactSubmission = {
     name: string;
     email: string;
     message: string;
+    attachmentUrl?: string;
+    attachmentName?: string;
 }
 
 export default function ContactPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
   const firestore = useFirestore();
+  const storage = useStorage();
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactFormSchema),
@@ -51,40 +59,86 @@ export default function ContactPage() {
 
   const { data: messages, loading: messagesLoading } = useCollection<ContactSubmission>(messagesQuery);
 
-
-  const onSubmit = async (data: ContactFormValues) => {
-    setLoading(true);
-
-    if (!firestore) {
-        toast({
-            variant: "destructive",
-            title: "Oh no! Something went wrong.",
-            description: "Could not connect to the database.",
-        });
-        setLoading(false);
-        return;
-    }
-    
+  const saveSubmission = (data: Omit<ContactSubmission, 'id'>) => {
+    if (!firestore) return Promise.reject(new Error("Firestore not available"));
     const collectionRef = collection(firestore, 'dth_contactMessages');
     const newData = { ...data, createdAt: serverTimestamp() };
 
-    addDoc(collectionRef, newData).then(() => {
-        setSubmitted(true);
-    }).catch(async (serverError) => {
+    return addDoc(collectionRef, newData).catch(async (serverError) => {
       const permissionError = new FirestorePermissionError({
           path: collectionRef.path,
           operation: 'create',
           requestResourceData: newData,
       });
       errorEmitter.emit('permission-error', permissionError);
-      toast({
-        variant: "destructive",
-        title: "Oh no! Something went wrong.",
-        description: "There was a problem submitting your message. Please try again.",
-      });
-    }).finally(() => {
-        setLoading(false);
+      throw new Error("There was a problem submitting your message.");
     });
+  }
+
+  const onSubmit = async (data: ContactFormValues) => {
+    setLoading(true);
+
+    if (!firestore || !storage) {
+        toast({
+            variant: "destructive",
+            title: "Oh no! Something went wrong.",
+            description: "Could not connect to the database or storage service.",
+        });
+        setLoading(false);
+        return;
+    }
+
+    const file = data.attachment?.[0];
+
+    try {
+        if (file) {
+            const storageRef = ref(storage, `dth_contactAttachments/${Date.now()}_${file.name}`);
+            const uploadTask = uploadBytesResumable(storageRef, file);
+
+            uploadTask.on('state_changed',
+                (snapshot) => {
+                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                    setUploadProgress(progress);
+                },
+                (error) => {
+                    console.error("Upload failed:", error);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload Failed",
+                        description: "Your file could not be uploaded. Please try again.",
+                    });
+                    setUploadProgress(null);
+                    setLoading(false);
+                },
+                async () => {
+                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                    await saveSubmission({ 
+                        name: data.name, 
+                        email: data.email, 
+                        message: data.message,
+                        attachmentUrl: downloadURL,
+                        attachmentName: file.name
+                    });
+                    setSubmitted(true);
+                    setLoading(false);
+                    setUploadProgress(null);
+                }
+            );
+
+        } else {
+            await saveSubmission({ name: data.name, email: data.email, message: data.message });
+            setSubmitted(true);
+            setLoading(false);
+        }
+    } catch(error: any) {
+        toast({
+            variant: "destructive",
+            title: "Oh no! Something went wrong.",
+            description: error.message || "There was a problem submitting your message. Please try again.",
+        });
+        setLoading(false);
+        setUploadProgress(null);
+    }
   };
 
   if (submitted) {
@@ -150,8 +204,21 @@ export default function ContactPage() {
 
               )}
             </div>
+            <div className="space-y-2">
+                <Label htmlFor="attachment">Attachment</Label>
+                <Input id="attachment" type="file" {...form.register('attachment')} />
+                {form.formState.errors.attachment && (
+                    <p className="text-sm text-destructive">{form.formState.errors.attachment.message as string}</p>
+                )}
+            </div>
+            {uploadProgress !== null && (
+                <div className="space-y-2">
+                    <Label>Upload Progress</Label>
+                    <Progress value={uploadProgress} />
+                </div>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Sending...' : 'Send Message'}
+              {loading ? (uploadProgress !== null ? 'Uploading...' : 'Sending...') : 'Send Message'}
             </Button>
           </form>
         </CardContent>
@@ -171,6 +238,14 @@ export default function ContactPage() {
                   <li key={msg.id} className="border p-4 rounded-md">
                     <p className="font-semibold">{msg.name} <span className="text-sm text-muted-foreground">({msg.email})</span></p>
                     <p className="mt-2 text-gray-700">{msg.message}</p>
+                    {msg.attachmentUrl && (
+                        <div className="mt-2">
+                            <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-2">
+                                <Paperclip className="h-4 w-4" />
+                                {msg.attachmentName || 'View Attachment'}
+                            </a>
+                        </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -182,3 +257,5 @@ export default function ContactPage() {
     </main>
   );
 }
+
+    

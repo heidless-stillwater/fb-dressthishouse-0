@@ -8,6 +8,7 @@ import {
 } from 'firebase/app';
 import { Auth, getAuth } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -23,20 +24,23 @@ type FirebaseServices = {
   firebaseApp: FirebaseApp;
   auth: Auth;
   firestore: Firestore;
+  storage: FirebaseStorage;
 };
 
 let firebaseApp: FirebaseApp;
 let auth: Auth;
 let firestore: Firestore;
+let storage: FirebaseStorage;
 
 if (typeof window !== 'undefined' && !getApps().length) {
   firebaseApp = initializeApp(firebaseConfig);
   auth = getAuth(firebaseApp);
   firestore = getFirestore(firebaseApp, 'dressthishouse-db-0');
+  storage = getStorage(firebaseApp);
 }
 
 function getFirebase(): FirebaseServices {
-  return { firebaseApp, auth, firestore };
+  return { firebaseApp, auth, firestore, storage };
 }
 export { getFirebase };
 
@@ -50,4 +54,7 @@ export {
   useFirebaseApp,
   useFirestore,
   useAuth,
+  useStorage,
 } from './provider';
+
+    
