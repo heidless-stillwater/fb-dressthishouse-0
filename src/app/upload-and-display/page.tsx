@@ -18,8 +18,6 @@ import { errorEmitter } from '@/firebase/error-emitter';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
-import { v4 as uuidv4 } from 'uuid';
-import { transformImage } from '@/ai/flows/transform-image-flow';
 
 type ImageRecord = {
     id: string;
@@ -31,26 +29,8 @@ type ImageRecord = {
     timestamp: any;
 };
 
-// Helper to convert a file to a data URI
-const toDataUri = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-};
-
-// Helper to convert a data URI to a Blob
-const fromDataUri = async (dataUri: string): Promise<Blob> => {
-    const res = await fetch(dataUri);
-    return res.blob();
-};
-
-
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState('');
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,11 +59,11 @@ function ImageProcessor() {
   };
   
   const handleUpload = async () => {
-    if (!originalImage || !prompt || !user || !storage || !firestore) {
+    if (!originalImage || !user || !storage || !firestore) {
         toast({
             variant: "destructive",
             title: "Operation failed",
-            description: "Missing image, prompt, user authentication, or Firebase service.",
+            description: "Missing image, user authentication, or Firebase service.",
         });
         return;
     }
@@ -102,30 +82,24 @@ function ImageProcessor() {
         const originalDownloadURL = await getDownloadURL(originalUploadResult.ref);
         setOriginalImageUrl(originalDownloadURL);
 
-        // 2. Generate transformed image from prompt
-        setLoadingMessage('Decorating your room...');
-        const originalImageDataUri = await toDataUri(originalImage);
-        const transformedImageResponse = await transformImage({ image: originalImageDataUri, prompt });
-
-        const transformedImageBlob = await fromDataUri(transformedImageResponse.imageUrl);
-        const transformedFileName = `transformed-${uuidv4()}.png`;
+        // 2. Upload duplicate image as transformed image
+        setLoadingMessage('Creating duplicate image...');
+        const transformedFileName = `transformed-${originalFileName}`;
         const transformedFilePath = `user-uploads/${user.uid}/${timestamp}-${transformedFileName}`;
         const transformedStorageRef = ref(storage, transformedFilePath);
         
-        // 3. Upload transformed image
-        setLoadingMessage('Uploading new image...');
-        const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
+        const transformedUploadResult = await uploadBytes(transformedStorageRef, originalImage);
         const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
         setTransformedImageUrl(transformedDownloadURL);
 
-        // 4. Save record to Firestore
+        // 3. Save record to Firestore
         setLoadingMessage('Saving record...');
         const imageRecord = {
             userId: user.uid,
             originalImageUrl: originalDownloadURL,
             transformedImageUrl: transformedDownloadURL,
             originalFileName: originalFileName,
-            prompt: prompt,
+            prompt: "Duplicated image",
             timestamp: serverTimestamp(),
         };
 
@@ -142,7 +116,7 @@ function ImageProcessor() {
 
         toast({
           title: "Image Processed!",
-          description: "The image was successfully transformed and saved.",
+          description: "The image was successfully uploaded and duplicated.",
         });
 
     } catch (error) {
@@ -150,7 +124,7 @@ function ImageProcessor() {
         toast({
             variant: "destructive",
             title: "An error occurred",
-            description: (error as Error).message || "There was a problem with the image transformation or upload process.",
+            description: (error as Error).message || "There was a problem with the image upload process.",
         });
     } finally {
         setIsLoading(false);
@@ -162,19 +136,15 @@ function ImageProcessor() {
   return (
     <Card className="w-full max-w-2xl">
         <CardHeader>
-            <CardTitle>Image Decorator</CardTitle>
-            <CardDescription>Upload a picture of a room and provide a style to decorate it with AI.</CardDescription>
+            <CardTitle>Image Duplicator</CardTitle>
+            <CardDescription>Upload an image to save it and create a duplicate copy.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
                  <div className="space-y-2">
-                    <Label htmlFor="image-upload">1. Upload Room Image</Label>
+                    <Label htmlFor="image-upload">1. Upload Image</Label>
                     <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
                  </div>
-                 <div className="space-y-2">
-                    <Label htmlFor="prompt">2. Enter Decoration Style</Label>
-                    <Input id="prompt" type="text" placeholder="e.g., 'Modern minimalist', 'Bohemian', 'Coastal grandmother'..." value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} />
-                </div>
             </div>
 
             {(originalImageUrl || isLoading) && (
@@ -192,7 +162,7 @@ function ImageProcessor() {
                         )}
                     </div>
                      <div className="space-y-2">
-                        <h3 className="font-semibold">Transformed</h3>
+                        <h3 className="font-semibold">Transformed (Duplicate)</h3>
                         {transformedImageUrl ? (
                              <div className="relative aspect-video">
                                 <Image src={transformedImageUrl} alt="Transformed" fill className="rounded-md object-cover" />
@@ -210,8 +180,8 @@ function ImageProcessor() {
                 </div>
             )}
             
-            <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Decorate and Save Image"}
+            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
+                {isLoading ? loadingMessage : "Upload and Duplicate Image"}
                 <Wand2 className="ml-2" />
             </Button>
         </CardContent>
