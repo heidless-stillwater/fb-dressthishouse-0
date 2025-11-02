@@ -63,7 +63,7 @@ function ImageProcessor() {
     } else if (name === 'prompt') {
         setPrompt(value);
     } else if (name === 'test-mode' && type === 'checkbox') {
-        setTestMode(checked);
+        setTestMode(Boolean(checked));
     }
   };
   
@@ -97,8 +97,13 @@ function ImageProcessor() {
 
       // 2. Generate Transformed Image
       setLoadingMessage('Transforming image...');
-      const backgroundColor = testMode ? 'light blue' : 'light red';
-      const transformationPrompt = `Create an image with a solid ${backgroundColor} background. In the foreground, display the following text clearly: "${prompt}"`;
+      
+      let transformationPrompt: string;
+      if (testMode) {
+        transformationPrompt = `Create an image with a solid light blue background. In the foreground, display the following text clearly: "${prompt}"`;
+      } else {
+        transformationPrompt = `Assume the image is of a room in a domestic house. Decorate & Furnish this room in a style specified by the following prompt: ${prompt}`;
+      }
       
       const originalImageAsDataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -320,4 +325,6 @@ export default function UploadAndDisplayPage() {
   );
 }
  
+    
+
     
