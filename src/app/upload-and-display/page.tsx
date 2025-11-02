@@ -12,13 +12,11 @@ import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { v4 as uuidv4 } from 'uuid';
 import { addDoc, collection, serverTimestamp, query, where, orderBy } from 'firebase/firestore';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { Skeleton } from '@/components/ui/skeleton';
-import { transformImage } from '@/ai/flows/transform-image-flow';
 import { Label } from '@/components/ui/label';
 
 type ImageRecord = {
@@ -31,23 +29,10 @@ type ImageRecord = {
     timestamp: any;
 };
 
-// Helper function to convert Data URI to Blob
-function dataURItoBlob(dataURI: string) {
-    const byteString = atob(dataURI.split(',')[1]);
-    const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    return new Blob([ab], { type: mimeString });
-}
-
 function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const { toast } = useToast();
@@ -74,16 +59,17 @@ function ImageProcessor() {
   };
   
   const handleUpload = async () => {
-    if (!originalImage || !prompt || !user || !storage || !firestore) {
+    if (!originalImage || !user || !storage || !firestore) {
         toast({
             variant: "destructive",
             title: "Operation failed",
-            description: "Missing image, prompt, user authentication, or Firebase service.",
+            description: "Missing image, user authentication, or Firebase service.",
         });
         return;
     }
 
     setIsLoading(true);
+    setTransformedImageUrl(null);
 
     try {
         // 1. Upload original image
@@ -101,67 +87,37 @@ function ImageProcessor() {
             description: "Your original image has been uploaded.",
         });
 
-        // 2. Transform the image using AI
-        setLoadingMessage('Transforming image with AI...');
-        const reader = new FileReader();
-        reader.readAsDataURL(originalImage);
-        reader.onloadend = async () => {
-            const originalImageDataUri = reader.result as string;
+        // 2. Use a placeholder for the transformed image
+        setLoadingMessage('Generating placeholder...');
+        const placeholderImageUrl = `https://picsum.photos/seed/${originalTimestamp}/800/600`;
+        setTransformedImageUrl(placeholderImageUrl);
 
-            try {
-                const transformedImageDataUri = await transformImage(originalImageDataUri, prompt);
-                const transformedImageBlob = dataURItoBlob(transformedImageDataUri);
+        // 3. Save record to Firestore
+        setLoadingMessage('Saving record...');
+        const imageRecord = {
+            userId: user.uid,
+            originalImageUrl: originalDownloadURL,
+            transformedImageUrl: placeholderImageUrl,
+            originalFileName: originalFileName,
+            prompt: 'placeholder', // Using a placeholder value for the prompt
+            timestamp: serverTimestamp(),
+        };
 
-                // 3. Upload transformed image
-                setLoadingMessage('Uploading transformed image...');
-                const transformedTimestamp = Date.now();
-                const transformedFileName = `transformed-${uuidv4()}-${originalFileName}`;
-                const transformedFilePath = `user-uploads/${user.uid}/${transformedTimestamp}-${transformedFileName}`;
-                const transformedStorageRef = ref(storage, transformedFilePath);
-                const transformedUploadResult = await uploadBytes(transformedStorageRef, transformedImageBlob);
-                const transformedDownloadURL = await getDownloadURL(transformedUploadResult.ref);
-                setTransformedImageUrl(transformedDownloadURL);
+        const collectionRef = collection(firestore, 'imageRecords');
+        await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: collectionRef.path,
+                operation: 'create',
+                requestResourceData: imageRecord,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw new Error("Could not save image record to database.");
+        });
 
-                // 4. Save record to Firestore
-                setLoadingMessage('Saving record...');
-                const imageRecord = {
-                    userId: user.uid,
-                    originalImageUrl: originalDownloadURL,
-                    transformedImageUrl: transformedDownloadURL,
-                    originalFileName: originalFileName,
-                    prompt: prompt,
-                    timestamp: serverTimestamp(),
-                };
-
-                const collectionRef = collection(firestore, 'imageRecords');
-                await addDoc(collectionRef, imageRecord).catch(async (serverError) => {
-                    const permissionError = new FirestorePermissionError({
-                        path: collectionRef.path,
-                        operation: 'create',
-                        requestResourceData: imageRecord,
-                    });
-                    errorEmitter.emit('permission-error', permissionError);
-                    throw new Error("Could not save image record to database.");
-                });
-
-                toast({
-                  title: "Image Transformed!",
-                  description: "The image was successfully transformed and saved.",
-                });
-
-            } catch (aiError) {
-                 console.error("AI transformation error:", aiError);
-                toast({
-                    variant: "destructive",
-                    title: "AI Transformation Failed",
-                    description: "There was a problem transforming the image.",
-                });
-            } finally {
-                setIsLoading(false);
-                setLoadingMessage('');
-            }
-        }
-
+        toast({
+          title: "Image Processed!",
+          description: "The image was successfully processed and saved.",
+        });
 
     } catch (error) {
         console.error("Operation error:", error);
@@ -170,6 +126,7 @@ function ImageProcessor() {
             title: "An error occurred",
             description: "There was a problem with the upload process.",
         });
+    } finally {
         setIsLoading(false);
         setLoadingMessage('');
     }
@@ -180,24 +137,13 @@ function ImageProcessor() {
     <Card className="w-full max-w-2xl">
         <CardHeader>
             <CardTitle>Image Processor</CardTitle>
-            <CardDescription>Upload an image and provide a prompt to transform it using AI.</CardDescription>
+            <CardDescription>Upload an image to process and save it to your gallery.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
              <div className="space-y-4">
                  <div className="space-y-2">
                     <Label htmlFor="image-upload">Upload Image</Label>
                     <Input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="flex-grow" disabled={isLoading} />
-                 </div>
-                 <div className="space-y-2">
-                    <Label htmlFor="prompt">Transformation Prompt</Label>
-                    <Input 
-                        id="prompt" 
-                        type="text" 
-                        placeholder="e.g., Decorate & Furnish this room in an art deco style" 
-                        value={prompt} 
-                        onChange={(e) => setPrompt(e.target.value)} 
-                        disabled={isLoading}
-                    />
                  </div>
             </div>
 
@@ -234,8 +180,8 @@ function ImageProcessor() {
                 </div>
             )}
             
-            <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
-                {isLoading ? loadingMessage : "Upload and Transform Image"}
+            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
+                {isLoading ? loadingMessage : "Upload and Process Image"}
                 <Wand2 className="ml-2" />
             </Button>
         </CardContent>
@@ -280,9 +226,6 @@ function ImageGallery() {
                     <div key={record.id} className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-2">
                            File: <span className="font-medium text-foreground">{record.originalFileName}</span>
-                        </p>
-                        <p className="text-sm text-muted-foreground mb-4">
-                           Prompt: <span className="font-medium text-foreground italic">"{record.prompt}"</span>
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
