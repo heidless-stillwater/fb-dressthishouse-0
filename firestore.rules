@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if the user is the owner of the document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Helper function to validate task data
+    function isValidTask(taskData) {
+      return taskData.title is string &&
+             taskData.title.size() > 0 &&
+             taskData.description is string &&
+             taskData.completed is bool &&
+             (taskData.createdAt == request.time || taskData.createdAt is timestamp);
+    }
+
+    match /users/{userId}/tasks/{taskId} {
+      allow read, delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidTask(request.resource.data);
+      allow update: if isOwner(userId) && isValidTask(request.resource.data);
+    }
+  }
+}
