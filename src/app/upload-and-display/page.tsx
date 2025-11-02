@@ -35,7 +35,7 @@ function ImageProcessor() {
   const [originalImage, setOriginalImage] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
-  const [testMode, setTestMode] = useState(false);
+  const [testMode, setTestMode] = useState(true);
   const [transformedImageUrl, setTransformedImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -46,7 +46,7 @@ function ImageProcessor() {
 
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, files } = event.target;
+    const { name, value, files, type, checked } = event.target;
     if (name === 'image' && files?.[0]) {
         const file = files[0];
          if (file.size > 5 * 1024 * 1024) { // 5MB limit
@@ -62,6 +62,8 @@ function ImageProcessor() {
         setTransformedImageUrl(null);
     } else if (name === 'prompt') {
         setPrompt(value);
+    } else if (name === 'test-mode' && type === 'checkbox') {
+        setTestMode(checked);
     }
   };
   
@@ -170,7 +172,7 @@ function ImageProcessor() {
                     <Input id="prompt" name="prompt" type="text" placeholder="e.g., 'make it a cyberpunk style'" value={prompt} onChange={handleInputChange} disabled={isLoading} />
                 </div>
                 <div className="flex items-center space-x-2">
-                    <Checkbox id="test-mode" checked={testMode} onCheckedChange={(checked) => setTestMode(Boolean(checked))} disabled={isLoading} />
+                    <Checkbox id="test-mode" name="test-mode" checked={testMode} onCheckedChange={(checked) => setTestMode(Boolean(checked))} disabled={isLoading} />
                     <Label htmlFor="test-mode" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                         Test mode
                     </Label>
@@ -208,7 +210,7 @@ function ImageProcessor() {
                 </div>
             </div>
             
-            <Button onClick={handleUpload} disabled={!originalImage || isLoading} className="w-full">
+            <Button onClick={handleUpload} disabled={!originalImage || !prompt || isLoading} className="w-full">
                 {isLoading ? loadingMessage : "Upload Images"}
             </Button>
         </CardContent>
