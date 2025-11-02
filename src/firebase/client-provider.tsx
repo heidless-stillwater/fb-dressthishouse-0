@@ -1,7 +1,7 @@
 
 'use client';
 
-import { ReactNode, useMemo } from 'react';
+import { ReactNode, useMemo, useState, useEffect } from 'react';
 import { getFirebase } from './index';
 import {
   FirebaseProvider,
@@ -9,6 +9,12 @@ import {
 } from './provider';
 
 export function FirebaseClientProvider({ children }: { children: ReactNode }) {
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const firebase = useMemo(() => {
     if (typeof window !== 'undefined') {
       return getFirebase();
@@ -16,8 +22,10 @@ export function FirebaseClientProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
-  if (!firebase) {
-    return null; 
+  if (!isMounted || !firebase) {
+    // On the server or before the client has mounted, we can return a loader or null.
+    // Returning null might be better to avoid layout shifts if the content isn't ready.
+    return null;
   }
 
   return (
