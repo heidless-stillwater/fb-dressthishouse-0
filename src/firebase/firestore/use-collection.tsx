@@ -2,15 +2,15 @@
 'use client';
 
 import {
-  collection,
   onSnapshot,
-  query,
   Query,
   DocumentData,
   FirestoreError,
   QuerySnapshot,
 } from 'firebase/firestore';
 import { useEffect, useState, useRef } from 'react';
+import { errorEmitter } from '../error-emitter';
+import { FirestorePermissionError } from '../errors';
 
 interface CollectionData<T> {
   data: (T & { id: string })[] | null;
@@ -45,8 +45,13 @@ export function useCollection<T>(
         })) as (T & { id: string })[];
         setCollectionData({ data, loading: false, error: null });
       },
-      (error: FirestoreError) => {
-        setCollectionData({ data: null, loading: false, error });
+      (serverError: FirestoreError) => {
+        const permissionError = new FirestorePermissionError({
+            path: 'unknown',
+            operation: 'list',
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        setCollectionData({ data: null, loading: false, error: serverError });
       }
     );
 

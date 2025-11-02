@@ -11,8 +11,10 @@ import TaskFormDialog from '@/components/task-form-dialog';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUser, useAuth, useFirestore } from '@/firebase';
 import { useCollection } from '@/firebase/firestore/use-collection';
-import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, Timestamp } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 export default function Home() {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -55,35 +57,65 @@ export default function Home() {
     setIsFormOpen(true);
   };
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = (taskId: string) => {
     if (!user || !firestore) return;
     const taskRef = doc(firestore, 'users', user.uid, 'tasks', taskId);
-    await deleteDoc(taskRef);
+    deleteDoc(taskRef).catch(async (serverError) => {
+      const permissionError = new FirestorePermissionError({
+        path: taskRef.path,
+        operation: 'delete',
+      });
+      errorEmitter.emit('permission-error', permissionError);
+    });
   };
 
-  const handleToggleComplete = async (taskId: string) => {
+  const handleToggleComplete = (taskId: string) => {
     if (!user || !firestore) return;
     const task = tasks?.find(t => t.id === taskId);
     if (!task) return;
     const taskRef = doc(firestore, 'users', user.uid, 'tasks', taskId);
-    await updateDoc(taskRef, { completed: !task.completed });
+    const updatedData = { completed: !task.completed };
+    updateDoc(taskRef, updatedData).catch(async (serverError) => {
+        const permissionError = new FirestorePermissionError({
+            path: taskRef.path,
+            operation: 'update',
+            requestResourceData: updatedData,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+    });
   };
 
-  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'createdAt' | 'completed'>) => {
+  const handleSaveTask = (taskData: Omit<Task, 'id' | 'createdAt' | 'completed'>) => {
     if (!user || !firestore) return;
     
     if (editingTask) {
         const taskRef = doc(firestore, 'users', user.uid, 'tasks', editingTask.id);
-        await updateDoc(taskRef, {
+        const updatedData = {
             title: taskData.title,
             description: taskData.description,
+        };
+        updateDoc(taskRef, updatedData).catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: taskRef.path,
+                operation: 'update',
+                requestResourceData: updatedData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
         });
     } else {
         const collectionRef = collection(firestore, 'users', user.uid, 'tasks');
-        await addDoc(collectionRef, {
+        const newData = {
             ...taskData,
             completed: false,
             createdAt: serverTimestamp(),
+        };
+        addDoc(collectionRef, newData).catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: collectionRef.path,
+                operation: 'create',
+                requestResourceData: newData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
         });
     }
     setIsFormOpen(false);
